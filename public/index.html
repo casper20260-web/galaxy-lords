@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>أسياد المجرة - لعبة استراتيجية</title>
+    <style>
+        body { margin: 0; background: #03031a; color: white; font-family: Arial, sans-serif; overflow: hidden; }
+        #ui { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; border: 1px solid #00ffcc; z-index: 10; }
+        #galaxy-map { width: 100vw; height: 100vh; position: relative; background: radial-gradient(circle, #111536 0%, #050510 100%); }
+        .planet { position: absolute; width: 50px; height: 50px; border-radius: 50%; background: #00ffcc; cursor: pointer; text-align: center; font-size: 11px; font-weight: bold; line-height: 50px; box-shadow: 0 0 15px #00ffcc; transition: transform 0.2s; }
+        .planet:hover { transform: scale(1.2); }
+        .my-planet { background: #ff00ff !important; box-shadow: 0 0 15px #ff00ff !important; }
+        #log { position: absolute; bottom: 10px; right: 10px; width: 300px; height: 150px; background: rgba(0,0,0,0.8); padding: 10px; border-radius: 5px; overflow-y: auto; font-size: 12px; border: 1px solid #ff00ff; }
+        button { background: #00ffcc; border: none; padding: 8px 12px; font-weight: bold; border-radius: 4px; cursor: pointer; margin-top: 5px; display: block; width: 100%; }
+        button:hover { background: #fff; }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    <div id="ui">
+        <h3 id="p-name">جاري الاتصال بالمجرة...</h3>
+        <p>⚡ طاقة: <span id="res-energy">0</span></p>
+        <p>💎 كريستال: <span id="res-crystal">0</span></p>
+        <p>🚀 أسطول السفن: <span id="res-ships">0</span> (مستوى المنجم: <span id="mine-lvl">1</span>)</p>
+        <button onclick="upgradeMine()">تطوير منجم الكريستال (تكلفة: <span id="up-cost">100</span>)</button>
+        <button onclick="buildShip()">بناء سفينة فضائية (50 طاقة / 30 كريستال)</button>
+    </div>
+
+    <div id="log"><b>سجل أحداث المجرة:</b><br></div>
+    <div id="galaxy-map"></div>
+
+    <script>
+        const socket = io();
+        let myId = "";
+        const map = document.getElementById('galaxy-map');
+
+        socket.on('init', (data) => {
+            myId = data.id;
+            document.getElementById('p-name').innerText = data.players[myId].planetName;
+            renderMap(data.players);
+        });
+
+        socket.on('newPlanet', (planet) => {
+            logMessage(`✨ ظهر كوكب جديد في المجرة: ${planet.planetName}`);
+            createPlanetDOM(planet);
+        });
+
+        socket.on('updateResources', (res) => {
+            document.getElementById('res-energy').innerText = res.energy;
+            document.getElementById('res-crystal').innerText = res.crystal;
+        });
+
+        socket.on('mineUpgraded', (data) => {
+            document.getElementById('mine-lvl').innerText = data.level;
+            document.getElementById('up-cost').innerText = data.level * 100;
+            logMessage(`✅ تم ترقية منجم الكريستال إلى المستوى ${data.level}`);
+        });
+
+        socket.on('shipBuilt', (data) => {
+            document.getElementById('res-ships').innerText = data.ships;
+            logMessage(`🚀 تم بناء سفينة حربية جديدة بنجاح!`);
+        });
+
+        socket.on('battleResult', (data) => {
+            logMessage(data.msg);
+        });
+
+        socket.on('errorMsg', (msg) => { alert(msg); });
+
+        socket.on('playerLeft', (id) => {
+            const el = document.getElementById(id);
+            if(el) el.remove();
+        });
+
+        function renderMap(players) {
+            map.innerHTML = '';
+            Object.values(players).forEach(p => createPlanetDOM(p));
+        }
+
+        function createPlanetDOM(p) {
+            const div = document.createElement('div');
+            div.className = 'planet' + (p.id === myId ? ' my-planet' : '');
+            div.id = p.id;
+            div.style.left = p.x + 'px';
+            div.style.top = p.y + 'px';
+            div.innerText = p.planetName;
+            
+            if(p.id !== myId) {
+                div.title = "اضغط للهجوم على هذا الكوكب!";
+                div.onclick = () => {
+                    if(confirm(`هل تريد إرسال أسطولك لمهاجمة ${p.planetName}؟`)) {
+                        socket.emit('attackPlanet', p.id);
+                    }
+                };
+            }
+            map.appendChild(div);
+        }
+
+        function upgradeMine() { socket.emit('upgradeMine'); }
+        function buildShip() { socket.emit('buildShip'); }
+        function logMessage(text) {
+            const log = document.getElementById('log');
+            log.innerHTML += `<div>${text}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+    </script>
+</body>
+</html>
