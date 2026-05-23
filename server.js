@@ -1,82 +1,119 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>الثلاث جزر والظلام - النسخة التجارية الكاملة</title>
-    <style>
-        body { margin: 0; background: #070b12; color: #e2e8f0; font-family: Arial, sans-serif; overflow: hidden; }
-        #ui { position: absolute; top: 15px; left: 15px; background: rgba(15, 23, 42, 0.95); padding: 15px; border-radius: 12px; border: 2px solid #f59e0b; z-index: 10; width: 280px; font-size: 13px; }
-        .res { display: flex; justify-content: space-between; background: #1e293b; padding: 4px 8px; margin: 4px 0; border-radius: 4px; font-weight: bold; }
-        #world-map { width: 100vw; height: 100vh; position: relative; background: radial-gradient(circle, #101726 30%, #030712 100%); }
-        .island { position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; opacity: 0.8; }
-        #isl-1 { top: 10%; left: 10%; width: 200px; height: 200px; background: #334155; border: 2px solid #f59e0b; }
-        #isl-2 { top: 10%; right: 10%; width: 200px; height: 200px; background: #064e3b; border: 2px solid #10b981; }
-        #isl-3 { bottom: 10%; left: 40%; width: 200px; height: 200px; background: #4c1d95; border: 2px solid #8b5cf6; }
-        #mtn-center { top: 40%; left: 43%; width: 140px; height: 140px; background: #000; border: 2px solid #ef4444; border-radius: 50%; position: absolute; display: flex; align-items: center; justify-content: center; color: #ef4444; font-weight: bold; box-shadow: 0 0 20px #ef4444; }
-        .btn-shop { background: #ef4444; color: white; font-weight: bold; border: none; padding: 8px; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 5px; }
-        .btn-ex { background: #10b981; color: white; font-weight: bold; border: none; padding: 8px; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 5px; }
-        #chat-box { position: absolute; bottom: 15px; left: 15px; width: 300px; height: 180px; background: rgba(15, 23, 42, 0.95); border: 1px solid #334155; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; }
-        #chat-msgs { flex: 1; overflow-y: auto; font-size: 12px; margin-bottom: 5px; }
-    </style>
-    <script src="/socket.io/socket.io.js"></script>
-</head>
-<body>
+const express = require('express');
+const app = express();
+const http = require('http').createServer(app);
+const io = require('socket.io')(http, { cors: { origin: "*" } });
+const path = require('path');
 
-    <div id="ui">
-        <h3 style="margin:0 0 5px 0; color:#f59e0b; text-align:center;" id="p-name">خزائن اللورد</h3>
-        <div class="res" style="color:#ef4444;">⚡ طاقة العمل AP: <span id="val-ap">100</span></div>
-        <div class="res" style="color:#f59e0b;">🪙 CP معدني: <span id="val-m">0</span></div>
-        <div class="res" style="color:#10b981;">🌿 CP طبيعي: <span id="val-n">0</span></div>
-        <div class="res" style="color:#8b5cf6;">✨ CP سحري: <span id="val-mg">0</span></div>
-        <div class="res">🍞 الطحين (ليفل 100): <span id="val-f">0</span></div>
-        <div class="res">🧀 الجبن (ليفل 100): <span id="val-c">0</span></div>
-        
-        <button class="btn-ex" onclick="exchangeAP()">🏪 مبادلة بالمتجر (شحن +30 طاقة AP)</button>
-        <button class="btn-shop" onclick="buyBundle()">🛒 متجر الأرباح: شراء حزمة تسريع ليفل 100</button>
-        <button style="width:100%; margin-top:5px; padding:6px;" onclick="createAlliance()">🏰 تأسيس تحالف (ليفل 15 + 300 CP)</button>
-    </div>
+app.use(express.static(path.join(__dirname, 'public')));
 
-    <div id="chat-box">
-        <div id="chat-msgs"><b>💬 الشات العام للممالك:</b><br></div>
-        <input type="text" id="chat-in" placeholder="اكتب رسالتك واضغط Enter..." onkeydown="if(event.key==='Enter') sendChat()">
-    </div>
+let players = {};
+let alliances = {};
+const islands = ['metal', 'nature', 'magic'];
+let nextIslandIndex = 0;
 
-    <div id="world-map">
-        <div id="isl-1" class="island">جزيرة المعادن</div>
-        <div id="isl-2" class="island">جزيرة الطبيعة</div>
-        <div id="isl-3" class="island">جزيرة السحر</div>
-        <div id="mtn-center">جبل العرش 👑</div>
-    </div>
+// نظام توقيت معركة جبل العرش
+let mountainKing = { allianceId: null, allianceName: "لا أحد", holdTime: {}, lastUpdate: Date.now() };
 
-    <script>
-        const socket = io();
-        socket.on('init', (data) => { document.getElementById('p-name').innerText = data.players[socket.id].kingName; });
-        socket.on('updateResources', (res) => {
-            document.getElementById('val-ap').innerText = res.ap;
-            document.getElementById('val-m').innerText = res.cp_metal;
-            document.getElementById('val-n').innerText = res.cp_nature;
-            document.getElementById('val-mg').innerText = res.cp_magic;
-            document.getElementById('val-f').innerText = res.flour;
-            document.getElementById('val-c').innerText = res.cheese;
-        });
-        socket.on('chatGlobal', (d) => {
-            const box = document.getElementById('chat-msgs');
-            box.innerHTML += `<div><b>${d.sender}:</b> ${d.text}</div>`;
-            box.scrollTop = box.scrollHeight;
-        });
-        socket.on('logUpdate', (m) => { alert(m); });
-        socket.on('errorMsg', (m) => { alert(m); });
+io.on('connection', (socket) => {
+    console.log(`لاعب جديد انضم: ${socket.id}`);
 
-        function buyBundle() { socket.emit('buyBundle', 'speed'); }
-        function exchangeAP() { socket.emit('exchangeAP'); }
-        function createAlliance() {
-            let name = prompt("اكتب اسم التحالف الجديد:");
-            if(name) socket.emit('createAlliance', name);
+    // 1. التوزيع التلقائي العادل للاعبين على الجزر
+    const assignedIsland = islands[nextIslandIndex];
+    nextIslandIndex = (nextIslandIndex + 1) % islands.length;
+
+    let posX = assignedIsland === 'metal' ? Math.floor(Math.random() * 80) + 80 : assignedIsland === 'nature' ? Math.floor(Math.random() * 80) + 500 : Math.floor(Math.random() * 80) + 300;
+    let posY = assignedIsland === 'metal' ? Math.floor(Math.random() * 80) + 80 : assignedIsland === 'nature' ? Math.floor(Math.random() * 80) + 80 : Math.floor(Math.random() * 80) + 380;
+
+    // 2. إنشاء بيانات حساب اللاعب التجاري الشامل
+    players[socket.id] = {
+        id: socket.id,
+        kingName: `لورد-${Math.floor(Math.random() * 900) + 100}`,
+        island: assignedIsland,
+        x: posX, y: posY,
+        castleLevel: 1, flurMill: 1, fruitFarm: 1, cheeseFactory: 1, researchLab: 1, allianceEmbassy: 1, warehouse: 1,
+        cp_metal: 200, cp_nature: 200, cp_magic: 200, // عملة CP
+        flour: 500, fruit: 500, cheese: 500, // الغذاء ليفل 100
+        cannon: 5, sniper: 5, ninja: 5, // الجيش ليفل 7
+        cannonLvl: 1, sniperLvl: 1, ninjaLvl: 1,
+        ap: 100, // نقاط العمل / الطاقة
+        allianceId: null, allianceRole: null, heroStars: 1, bloodFeudWith: null,
+        shieldUntil: Date.now() + 172800000 // حماية مبتدئين 48 ساعة مجاناً
+    };
+
+    socket.emit('init', { id: socket.id, players: players, alliances: alliances });
+    socket.broadcast.emit('newCastle', players[socket.id]);
+
+    // 3. محرك الإنتاج التلقائي ليفل 100 وضخ الـ CP
+    setInterval(() => {
+        let p = players[socket.id];
+        if (p) {
+            // إنتاج الغذاء والمخازن
+            let maxCap = p.warehouse * 5000;
+            if (p.flour < maxCap) p.flour += p.flurMill * 0.5;
+            if (p.fruit < maxCap) p.fruit += p.fruitFarm * 0.3;
+            if (p.cheese < maxCap) p.cheese += p.cheeseFactory * 0.2;
+
+            // إنتاج الـ CP حسب الجزيرة
+            if (p.island === 'metal' && p.cp_metal < maxCap) p.cp_metal += p.castleLevel * 2;
+            else if (p.island === 'nature' && p.cp_nature < maxCap) p.cp_nature += p.castleLevel * 2;
+            else if (p.island === 'magic' && p.cp_magic < maxCap) p.cp_magic += p.castleLevel * 2;
+
+            // تجدد نقاط العمل (الطاقة) تلقائياً ببطء
+            if (p.ap < 100) p.ap += 0.05;
+
+            socket.emit('updateResources', {
+                cp_metal: Math.floor(p.cp_metal), cp_nature: Math.floor(p.cp_nature), cp_magic: Math.floor(p.cp_magic),
+                flour: Math.floor(p.flour), fruit: Math.floor(p.fruit), cheese: Math.floor(p.cheese), ap: Math.floor(p.ap)
+            });
         }
-        function sendChat() {
-            const inp = document.getElementById('chat-in');
-            if(inp.value.trim()) { socket.emit('msgGlobal', inp.value); inp.value = ''; }
+    }, 1000);
+
+    // 4. الجزء التجاري: شراء الحزم والمبادلة لشحن الطاقة AP
+    socket.on('buyBundle', (bundleType) => {
+        let p = players[socket.id];
+        if (!p) return;
+        if (bundleType === 'speed') {
+            p.cp_metal += 1000; p.cp_nature += 1000; p.cp_magic += 1000;
+            p.flour += 5000; p.ap = 100;
+            socket.emit('logUpdate', "💰 تم شراء حزمة تسريع التطوير والدراسة الفضية بنجاح!");
         }
-    </script>
-</body>
-</html>
+    });
+
+    socket.on('exchangeAP', () => {
+        let p = players[socket.id];
+        if (p && p.flour >= 200 && p.cheese >= 100) {
+            p.flour -= 200; p.cheese -= 100; p.ap = Math.min(100, p.ap + 30);
+            socket.emit('logUpdate', "⚡ تم شحن 30 نقطة عمل (AP) عن طريق مبادلة الطحين والجبن بالمتجر!");
+        } else {
+            socket.emit('errorMsg', "الموارد غير كافية بالمخزن للمبادلة وشحن الطاقة!");
+        }
+    });
+
+    // 5. نظام تأسيس التحالف التجاري الصارم (ليفل 15 + 300 CP)
+    socket.on('createAlliance', (name) => {
+        let p = players[socket.id];
+        if (p.castleLevel >= 15 && p.cp_metal >= 300) {
+            p.cp_metal -= 300;
+            let allyId = `all-${Date.now()}`;
+            alliances[allyId] = { id: allyId, name: name, leader: socket.id, officers: [], elite: [], members: [socket.id] };
+            p.allianceId = allyId; p.allianceRole = 'قائد';
+            io.emit('allianceCreated', alliances[allyId]);
+        } else {
+            socket.emit('errorMsg', "⚠️ شروط التأسيس لم تكتمل! يجب تجاوز ليفل 15 ودفع 300 CP.");
+        }
+    });
+
+    // 6. شات عام وشات تحالف فوري
+    socket.on('msgGlobal', (msg) => {
+        let p = players[socket.id];
+        if (p) io.emit('chatGlobal', { sender: p.kingName, text: msg });
+    });
+
+    socket.on('disconnect', () => {
+        delete players[socket.id];
+        io.emit('playerLeft', socket.id);
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => { console.log(`المحرك يعمل على منفذ ${PORT}`); });
